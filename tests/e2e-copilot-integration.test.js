@@ -284,26 +284,19 @@ function validateTranscriptSchema(schema, name) {
   assert(`${name}: has name`, !!schema.name);
   assert(`${name}: has version`, !!schema.version);
   assert(`${name}: has events array`, Array.isArray(schema.events));
-  assert(`${name}: has 7+ events`, schema.events?.length >= 7, `got ${schema.events?.length}`);
+  assert(`${name}: has 6+ events`, schema.events?.length >= 6, `got ${schema.events?.length}`);
 
   const eventNames = schema.events?.map(e => e.name) ?? [];
-  const required = ['session-meta', 'turn-context', 'user-message', 'assistant-message',
-    'tool-use', 'tool-result', 'session-end'];
+  const required = ['session-start', 'user-message', 'assistant-message',
+    'tool-execution-start', 'tool-execution-complete', 'session-end'];
   for (const req of required) {
     assert(`${name}: has "${req}" event`, eventNames.includes(req));
   }
 
-  // exec-command-end may be merged into tool-use/tool-result (runtime) or separate (example)
-  const hasDedicatedExecEnd = eventNames.includes('exec-command-end');
-  const hasExecInToolUse = schema.events?.some(e =>
-    e.name === 'tool-use' && e.match?.in?.includes('exec_command'));
-  const hasExecInToolResult = schema.events?.some(e =>
-    e.name === 'tool-result' && e.match?.in?.includes('exec_command_output'));
-  assert(`${name}: exec_command covered (dedicated event or merged into tool-use/tool-result)`,
-    hasDedicatedExecEnd || (hasExecInToolUse && hasExecInToolResult));
-
   const actions = schema.events?.map(e => e.action) ?? [];
+  assert(`${name}: has session_context action`, actions.includes('session_context'));
   assert(`${name}: has session_init action`, actions.includes('session_init'));
+  assert(`${name}: has assistant_message action`, actions.includes('assistant_message'));
   assert(`${name}: has tool_use action`, actions.includes('tool_use'));
   assert(`${name}: has tool_result action`, actions.includes('tool_result'));
   assert(`${name}: has session_end action`, actions.includes('session_end'));
@@ -329,15 +322,15 @@ const runtimeWatch = findWatch(runtimeTranscriptWatch, 'copilot');
 
 if (exampleWatch) {
   assertEq('Example watch: schema', exampleWatch.schema, 'copilot');
-  assert('Example watch: path has github-copilot',
-    exampleWatch.path?.includes('github-copilot'));
+  assert('Example watch: path has .copilot/session-state',
+    exampleWatch.path?.includes('.copilot/session-state'));
   assertEq('Example watch: startAtEnd', exampleWatch.startAtEnd, true);
 }
 
 if (runtimeWatch) {
   assertEq('Runtime watch: schema', runtimeWatch.schema, 'copilot');
-  assert('Runtime watch: path has github-copilot',
-    runtimeWatch.path?.includes('github-copilot'));
+  assert('Runtime watch: path has .copilot/session-state',
+    runtimeWatch.path?.includes('.copilot/session-state'));
   assertEq('Runtime watch: startAtEnd', runtimeWatch.startAtEnd, true);
 }
 
@@ -355,27 +348,22 @@ if (transcriptWatchExample && runtimeTranscriptWatch) {
   if (exSchema && rtSchema) {
     assertEq('Example and runtime schemas have same name',
       exSchema.name, rtSchema.name);
-    // Event counts may differ: example has exec-command-end as separate event,
-    // runtime merges exec_command into tool-use/tool-result
-    const exCore = exSchema.events?.filter(e => e.name !== 'exec-command-end')?.length ?? 0;
-    const rtCore = rtSchema.events?.length ?? 0;
-    assertEq('Core event count matches (excluding optional exec-command-end)',
-      exCore, rtCore);
+    assertEq('Example and runtime schemas have same event count',
+      exSchema.events?.length, rtSchema.events?.length);
   }
 }
 
-// ── Test 10: Simulated Copilot CLI JSONL parsing ──
-console.log('\n── Test 10: Simulated Copilot CLI JSONL event parsing ──');
+// ── Test 10: Simulated Copilot CLI JSONL event parsing (real format) ──
+console.log('\n── Test 10: Simulated Copilot CLI JSONL event parsing (real format) ──');
 
-// Simulate parsing Copilot CLI JSONL entries through our schema
+// Real Copilot CLI events use: type, id, timestamp, parentId, data (NOT payload)
 const mockCopilotEvents = [
-  { type: 'session_meta', payload: { id: 'copilot-sess-001', cwd: '/project' } },
-  { type: 'turn_context', payload: { cwd: '/project' } },
-  { type: 'user_message', payload: { message: 'Add a tests for the API' } },
-  { type: 'agent_message', payload: { message: "I'll add tests for the API endpoints." } },
-  { type: 'function_call', payload: { call_id: 'call_1', name: 'Bash', arguments: 'npm test' } },
-  { type: 'function_call_output', payload: { call_id: 'call_1', output: 'All tests passed!' } },
-  { type: 'turn_completed', payload: {} },
+  { type: 'session.start', data: { sessionId: 'copilot-sess-001', context: { cwd: '/project' } } },
+  { type: 'user.message', data: { content: 'Add tests for the API' } },
+  { type: 'assistant.message', data: { messageId: 'msg_1', content: "I'll add tests for the API endpoints." } },
+  { type: 'tool.execution_start', data: { toolCallId: 'call_1', toolName: 'Bash', arguments: { command: 'npm test' } } },
+  { type: 'tool.execution_complete', data: { toolCallId: 'call_1', success: true, result: { content: 'All tests passed!', detailedContent: 'Test output here' } } },
+  { type: 'session.shutdown', data: { shutdownType: 'routine' } },
 ];
 
 // Parse through the copilot schema matchers
@@ -401,12 +389,12 @@ if (schema) {
     }
   }
 
-  assertEq('All 7 mock events matched a schema event', results.length, 7);
-  assertEq('Event 0: session-meta → session_context', results[0]?.action, 'session_context');
-  assertEq('Event 2: user_message → session_init', results[2]?.action, 'session_init');
-  assertEq('Event 4: function_call → tool_use', results[4]?.action, 'tool_use');
-  assertEq('Event 5: function_call_output → tool_result', results[5]?.action, 'tool_result');
-  assertEq('Event 6: turn_completed → session_end', results[6]?.action, 'session_end');
+  assertEq('All 6 mock events matched a schema event', results.length, 6);
+  assertEq('Event 0: session.start → session_context', results[0]?.action, 'session_context');
+  assertEq('Event 1: user.message → session_init', results[1]?.action, 'session_init');
+  assertEq('Event 3: tool.execution_start → tool_use', results[3]?.action, 'tool_use');
+  assertEq('Event 4: tool.execution_complete → tool_result', results[4]?.action, 'tool_result');
+  assertEq('Event 5: session.shutdown → session_end', results[5]?.action, 'session_end');
 }
 
 // ── Summary ──
