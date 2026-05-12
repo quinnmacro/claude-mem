@@ -107,16 +107,123 @@ const CODEX_SAMPLE_SCHEMA: TranscriptSchema = {
   ]
 };
 
+const COPILOT_SAMPLE_SCHEMA: TranscriptSchema = {
+  name: 'copilot',
+  version: '0.1',
+  description: 'Schema for GitHub Copilot CLI session JSONL files.',
+  events: [
+    {
+      name: 'session-meta',
+      match: { path: 'type', equals: 'session_meta' },
+      action: 'session_context',
+      fields: {
+        sessionId: 'payload.id',
+        cwd: 'payload.cwd'
+      }
+    },
+    {
+      name: 'turn-context',
+      match: { path: 'type', equals: 'turn_context' },
+      action: 'session_context',
+      fields: {
+        cwd: 'payload.cwd'
+      }
+    },
+    {
+      name: 'user-message',
+      match: { path: 'type', equals: 'user_message' },
+      action: 'session_init',
+      fields: {
+        prompt: 'payload.message'
+      }
+    },
+    {
+      name: 'assistant-message',
+      match: { path: 'type', equals: 'agent_message' },
+      action: 'assistant_message',
+      fields: {
+        message: 'payload.message'
+      }
+    },
+    {
+      name: 'tool-use',
+      match: { path: 'type', in: ['function_call', 'custom_tool_call', 'web_search_call'] },
+      action: 'tool_use',
+      fields: {
+        toolId: 'payload.call_id',
+        toolName: {
+          coalesce: [
+            'payload.name',
+            'payload.type'
+          ]
+        },
+        toolInput: {
+          coalesce: [
+            'payload.arguments',
+            'payload.input',
+            'payload.command',
+            'payload.action'
+          ]
+        }
+      }
+    },
+    {
+      name: 'tool-result',
+      match: { path: 'type', in: ['function_call_output', 'custom_tool_call_output'] },
+      action: 'tool_result',
+      fields: {
+        toolId: 'payload.call_id',
+        toolResponse: 'payload.output'
+      }
+    },
+    {
+      name: 'exec-command-end',
+      match: { path: 'type', in: ['exec_command_end', 'exec_command_output'] },
+      action: 'observation',
+      fields: {
+        toolUseId: 'payload.call_id',
+        toolName: { value: 'exec_command' },
+        toolInput: {
+          coalesce: [
+            'payload.command',
+            'payload.input'
+          ]
+        },
+        toolResponse: {
+          coalesce: [
+            'payload.aggregated_output',
+            'payload.output',
+            'payload.stdout',
+            'payload.stderr'
+          ]
+        }
+      }
+    },
+    {
+      name: 'session-end',
+      match: { path: 'type', in: ['turn_aborted', 'turn_completed', 'task_complete'] },
+      action: 'session_end'
+    }
+  ]
+};
+
 export const SAMPLE_CONFIG: TranscriptWatchConfig = {
   version: 1,
   schemas: {
-    codex: CODEX_SAMPLE_SCHEMA
+    codex: CODEX_SAMPLE_SCHEMA,
+    copilot: COPILOT_SAMPLE_SCHEMA
   },
   watches: [
     {
       name: 'codex',
       path: '~/.codex/sessions/**/*.jsonl',
       schema: 'codex',
+      startAtEnd: true
+    },
+    {
+      name: 'copilot',
+      path: '~/.github-copilot/sessions/**/*.jsonl',
+      schema: 'copilot',
       startAtEnd: true
     }
   ],
