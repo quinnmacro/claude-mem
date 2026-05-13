@@ -1,0 +1,126 @@
+{
+  // ============================================================
+  // claude-mem settings — copy to ~/.claude-mem/settings.json
+  // Defaults are auto-created on first run; edit only what you need.
+  // ============================================================
+
+  // === Provider Selection ===
+  // "claude" uses Anthropic SDK (subscription/api-key/gateway)
+  // "gemini" uses Google Gemini API
+  // "openrouter" uses OpenRouter or any OpenAI-compatible endpoint (e.g. DashScope)
+  "CLAUDE_MEM_PROVIDER": "claude",
+
+  // === DashScope via OpenRouter Provider ===
+  // To use DashScope (Alibaba Cloud), set:
+  //   CLAUDE_MEM_PROVIDER = "openrouter"
+  //   CLAUDE_MEM_OPENROUTER_API_KEY = your DashScope API key (e.g. sk-xxx)
+  //   CLAUDE_MEM_OPENROUTER_MODEL = "qwen-plus" (or any DashScope-supported model)
+  //   CLAUDE_MEM_OPENROUTER_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  //
+  // DashScope endpoints:
+  //   OpenAI-compatible:  https://dashscope.aliyuncs.com/compatible-mode/v1
+  //   Anthropic-compatible: https://dashscope.aliyuncs.com/apps/anthropic
+  //
+  // When baseUrl contains "dashscope.aliyuncs.com", OpenRouter-specific headers
+  // (HTTP-Referer, X-Title) are automatically skipped.
+  "CLAUDE_MEM_OPENROUTER_API_KEY": "",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "xiaomi/mimo-v2-flash:free",
+  "CLAUDE_MEM_OPENROUTER_BASE_URL": "",
+  "CLAUDE_MEM_OPENROUTER_SITE_URL": "",
+  "CLAUDE_MEM_OPENROUTER_APP_NAME": "claude-mem",
+  "CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES": "20",
+  "CLAUDE_MEM_OPENROUTER_MAX_TOKENS": "100000",
+
+  // === Claude SDK ===
+  // Model used when provider=claude (Claude Agent SDK spawns Claude Code CLI)
+  "CLAUDE_MEM_MODEL": "claude-haiku-4-5-20251001",
+  // Auth method: "subscription" (logged-in SDK), "api-key" (ANTHROPIC_API_KEY), "gateway" (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN)
+  "CLAUDE_MEM_CLAUDE_AUTH_METHOD": "subscription",
+
+  // === Gemini ===
+  "CLAUDE_MEM_GEMINI_API_KEY": "",
+  "CLAUDE_MEM_GEMINI_MODEL": "gemini-2.5-flash-lite",
+  "CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED": "true",
+  "CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES": "20",
+  "CLAUDE_MEM_GEMINI_MAX_TOKENS": "100000",
+
+  // === Worker ===
+  "CLAUDE_MEM_WORKER_PORT": "37778",
+  "CLAUDE_MEM_WORKER_HOST": "127.0.0.1",
+  "CLAUDE_MEM_RUNTIME": "worker",
+  "CLAUDE_MEM_MAX_CONCURRENT_AGENTS": "2",
+
+  // === Context Injection ===
+  "CLAUDE_MEM_CONTEXT_OBSERVATIONS": "50",
+  "CLAUDE_MEM_CONTEXT_SHOW_READ_TOKENS": "false",
+  "CLAUDE_MEM_CONTEXT_SHOW_WORK_TOKENS": "false",
+  "CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_AMOUNT": "false",
+  "CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_PERCENT": "true",
+  "CLAUDE_MEM_CONTEXT_FULL_COUNT": "0",
+  "CLAUDE_MEM_CONTEXT_FULL_FIELD": "narrative",
+  "CLAUDE_MEM_CONTEXT_SESSION_COUNT": "10",
+  "CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY": "true",
+  "CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE": "false",
+  "CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT": "true",
+
+  // === Tier Routing ===
+  // Routes observations to models by complexity; "haiku" alias works across Direct API, Bedrock, Vertex, Azure
+  "CLAUDE_MEM_TIER_ROUTING_ENABLED": "true",
+  "CLAUDE_MEM_TIER_SIMPLE_MODEL": "haiku",
+  "CLAUDE_MEM_TIER_SUMMARY_MODEL": "",
+
+  // === Semantic Search ===
+  // Inject relevant past observations on every UserPromptSubmit (experimental)
+  "CLAUDE_MEM_SEMANTIC_INJECT": "false",
+  "CLAUDE_MEM_SEMANTIC_INJECT_LIMIT": "5",
+
+  // === Chroma Vector DB ===
+  "CLAUDE_MEM_CHROMA_ENABLED": "true",
+  "CLAUDE_MEM_CHROMA_MODE": "local",
+  "CLAUDE_MEM_CHROMA_HOST": "127.0.0.1",
+  "CLAUDE_MEM_CHROMA_PORT": "8000",
+  "CLAUDE_MEM_CHROMA_SSL": "false",
+  "CLAUDE_MEM_CHROMA_API_KEY": "",
+  "CLAUDE_MEM_CHROMA_TENANT": "default_tenant",
+  "CLAUDE_MEM_CHROMA_DATABASE": "default_database",
+
+  // === Transcript Watcher ===
+  "CLAUDE_MEM_TRANSCRIPTS_ENABLED": "true",
+  "CLAUDE_MEM_TRANSCRIPTS_CONFIG_PATH": "~/.claude-mem/transcript-watch.json",
+
+  // === Telegram Notifications ===
+  "CLAUDE_MEM_TELEGRAM_ENABLED": "true",
+  "CLAUDE_MEM_TELEGRAM_BOT_TOKEN": "",
+  "CLAUDE_MEM_TELEGRAM_CHAT_ID": "",
+  "CLAUDE_MEM_TELEGRAM_TRIGGER_TYPES": "security_alert",
+  "CLAUDE_MEM_TELEGRAM_TRIGGER_CONCEPTS": "",
+
+  // === Queue Engine ===
+  // "sqlite" (default) or "redis"
+  "CLAUDE_MEM_QUEUE_ENGINE": "sqlite",
+  "CLAUDE_MEM_REDIS_URL": "",
+  "CLAUDE_MEM_REDIS_HOST": "127.0.0.1",
+  "CLAUDE_MEM_REDIS_PORT": "6379",
+  "CLAUDE_MEM_REDIS_MODE": "external",
+  "CLAUDE_MEM_QUEUE_REDIS_PREFIX": "claude_mem_37778",
+
+  // === Server Beta (remote) ===
+  "CLAUDE_MEM_SERVER_BETA_URL": "http://127.0.0.1:37877",
+  "CLAUDE_MEM_SERVER_BETA_API_KEY": "",
+  "CLAUDE_MEM_SERVER_BETA_PROJECT_ID": "",
+
+  // === General ===
+  "CLAUDE_MEM_DATA_DIR": "~/.claude-mem",
+  "CLAUDE_MEM_LOG_LEVEL": "INFO",
+  "CLAUDE_MEM_MODE": "code",
+  "CLAUDE_MEM_SKIP_TOOLS": "ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion",
+  "CLAUDE_MEM_AUTH_MODE": "api-key",
+  "CLAUDE_MEM_PYTHON_VERSION": "3.13",
+  "CLAUDE_CODE_PATH": "",
+  "CLAUDE_MEM_WELCOME_HINT_ENABLED": "true",
+  "CLAUDE_MEM_HOOK_FAIL_LOUD_THRESHOLD": "3",
+  "CLAUDE_MEM_EXCLUDED_PROJECTS": "",
+  "CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED": "false",
+  "CLAUDE_MEM_FOLDER_USE_LOCAL_MD": "false",
+  "CLAUDE_MEM_FOLDER_MD_EXCLUDE": "[]"
+}
