@@ -1,5 +1,6 @@
 {
   "name": "claude-mem",
+  "_note": "Copilot CLI does not yet support lifecycle hooks. The hooks pointer references copilot-hooks.json which is ready for future use. Current integration works via transcript watcher and MCP server.",
   "version": "13.1.0",
   "description": "Memory compression system for Claude Code - persist context across sessions",
   "author": {

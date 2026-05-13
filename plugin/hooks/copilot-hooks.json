@@ -1,5 +1,6 @@
 {
   "description": "claude-mem Copilot CLI hook integration",
+  "_note": "Copilot CLI does not yet support lifecycle hooks. This file is ready for when hooks support is added. For now, integration works via transcript watcher (~/.copilot/session-state/*/events.jsonl) and MCP server.",
   "hooks": {
     "SessionStart": [
       {
