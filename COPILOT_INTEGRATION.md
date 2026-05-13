@@ -185,25 +185,84 @@ node tests/e2e-copilot-watcher.test.js       # 60 项
 
 测试覆盖的真实数据：
 - 3 个本机 Copilot CLI session（`~/.copilot/session-state/`）
-- 74 个真实事件，50 个正确匹配语义事件，24 个基础设施事件正确过滤
+- 99 个真实事件，62 个正确匹配语义事件，37 个基础设施事件正确过滤
 - 6 种事件类型与 schema 一一对应验证
-- Worker 运行状态（v13.1.0, PID, uptime）
+- Worker 运行状态（v13.2.0, PID, uptime）
 
 ---
 
-## 5. 开发命令
+## 5. 开机自启
+
+Worker 进程通过 Windows 注册表 Run 键实现登录后自动启动。
+
+### 注册表位置
+
+```
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+  ClaudeMemWorker = cmd /c "..."node.exe" "...bun-runner.js" "...worker-service.cjs" start"
+```
+
+### 工作原理
+
+1. 用户登录 → Windows 执行 Run 键中的命令
+2. `bun-runner.js` 检测/安装 Bun 运行环境
+3. `worker-service.cjs start` 启动 worker 守护进程
+4. worker 检测到已有 PID 文件且进程存活时跳过（防重复启动）
+5. worker 启动后 transcript watcher 自动开始监控 Copilot CLI sessions
+
+### 管理命令
+
+```powershell
+# 查看启动项
+Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "ClaudeMemWorker"
+
+# 临时禁用
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "ClaudeMemWorker"
+
+# 重新启用
+$cmd = 'cmd /c ""C:\Program Files\nodejs\node.exe" "C:\Users\Q\.claude\plugins\marketplaces\thedotmack\plugin\scripts\bun-runner.js" "C:\Users\Q\.claude\plugins\marketplaces\thedotmack\plugin\scripts\worker-service.cjs" start"'
+Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "ClaudeMemWorker" -Value $cmd
+```
+
+### 手动启动/停止
+
+```powershell
+# 启动 worker
+node "~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/bun-runner.js" "~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs" start
+
+# 停止 worker
+curl -X POST http://127.0.0.1:37778/api/admin/shutdown
+
+# 查看 worker 状态
+curl http://127.0.0.1:37778/api/health
+```
+
+---
+
+## 6. 测试验证
+
+```bash
+# 全部 163 项测试
+node tests/e2e-copilot-integration.test.js   # 103 项
+node tests/e2e-copilot-watcher.test.js       # 60 项
+```
+
+## 7. 开发命令
 
 ```bash
 npm run build          # 编译 TypeScript → CommonJS bundles
-npm run build-and-sync # 编译 + 部署到 marketplace + 重启 worker
 ```
 
-`build-and-sync` 依赖 `rsync`，Windows 下需要手动同步关键文件：
+Windows 下没有 `rsync`，需手动部署：
 
 ```powershell
-# 同步构建产物到 cache
-Copy-Item plugin/scripts/worker-service.cjs ~/.claude/plugins/cache/thedotmack/claude-mem/13.1.0/scripts/ -Force
-Copy-Item plugin/scripts/mcp-server.cjs ~/.claude/plugins/cache/thedotmack/claude-mem/13.1.0/scripts/ -Force
+# 同步构建产物到 marketplace (稳定路径，开机自启用这个)
+Copy-Item plugin/scripts/worker-service.cjs ~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/ -Force
+Copy-Item plugin/scripts/mcp-server.cjs ~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/ -Force
+
+# 同步到当前 cache 版本
+Copy-Item plugin/scripts/worker-service.cjs ~/.claude/plugins/cache/thedotmack/claude-mem/13.2.0/scripts/ -Force
+Copy-Item plugin/scripts/mcp-server.cjs ~/.claude/plugins/cache/thedotmack/claude-mem/13.2.0/scripts/ -Force
 
 # 重启 worker
 curl -X POST http://127.0.0.1:37778/api/admin/restart
@@ -211,7 +270,7 @@ curl -X POST http://127.0.0.1:37778/api/admin/restart
 
 ---
 
-## 6. Commit 历史
+## 8. Commit 历史
 
 | Commit | 说明 |
 |--------|------|
@@ -219,12 +278,15 @@ curl -X POST http://127.0.0.1:37778/api/admin/restart
 | `5ff333e6` | test: add E2E tests for Copilot CLI integration, fix BOM in hooks JSON |
 | `fe5786a5` | fix: update Copilot CLI schema to match real events.jsonl format |
 | `ee536d14` | chore: deploy copilot adapter bundle, add `_note` fields, E2E watcher tests |
+| `2374b4dc` | Merge upstream v13.2.0 into fork（wowerpoint skill, version bump） |
+| `2cd294ae` | chore: rebuild bundles after upstream v13.2.0 merge |
+| `59d96e01` | docs: update COPILOT_INTEGRATION.md |
 
-共 4 个 commits，基于上游 `thedotmack/claude-mem` v13.1.0（`8bd19b5c`）。
+共 7 个 commits，基于上游 `thedotmack/claude-mem` v13.1.0（`8bd19b5c`），已同步至 v13.2.0。
 
 ---
 
-## 7. 同步上游更新
+## 9. 同步上游更新
 
 当 `thedotmack/claude-mem` 发布新版本时：
 
@@ -247,7 +309,7 @@ git push origin main
 
 ---
 
-## 8. 已知限制
+## 10. 已知限制
 
 1. **Copilot CLI 暂无 hooks API**。`copilot-hooks.json` 和 `.copilot-plugin/plugin.json` 中的 hooks 配置不会触发。当前实际生效的集成路径只有 transcript watcher + MCP server。
 
