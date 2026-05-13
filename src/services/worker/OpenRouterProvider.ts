@@ -17,7 +17,7 @@ import {
 import { ClassifiedProviderError } from './provider-errors.js';
 import { withRetry } from './retry.js';
 
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const DEFAULT_OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 /**
  * Parse Retry-After header (seconds or HTTP-date). Returns ms or undefined.
@@ -145,7 +145,7 @@ export class OpenRouterProvider {
   }
 
   async startSession(session: ActiveSession, worker?: WorkerRef): Promise<void> {
-    const { apiKey, model, siteUrl, appName } = this.getOpenRouterConfig();
+    const { apiKey, model, siteUrl, appName, baseUrl } = this.getOpenRouterConfig();
 
     if (!apiKey) {
       throw new Error('OpenRouter API key not configured. Set CLAUDE_MEM_OPENROUTER_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
@@ -167,7 +167,7 @@ export class OpenRouterProvider {
     session.conversationHistory.push({ role: 'user', content: initPrompt });
 
     try {
-      const initResponse = await this.queryOpenRouterMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
+      const initResponse = await this.queryOpenRouterMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName, baseUrl);
       await this.handleInitResponse(initResponse, session, worker, model);
     } catch (error: unknown) {
       if (error instanceof Error) {
@@ -183,7 +183,7 @@ export class OpenRouterProvider {
 
     try {
       for await (const message of this.sessionManager.getMessageIterator(session.sessionDbId)) {
-        lastCwd = await this.processOneMessage(session, message, lastCwd, apiKey, model, siteUrl, appName, worker, mode);
+        lastCwd = await this.processOneMessage(session, message, lastCwd, apiKey, model, siteUrl, appName, baseUrl, worker, mode);
       }
     } catch (error: unknown) {
       if (error instanceof Error) {
@@ -240,6 +240,7 @@ export class OpenRouterProvider {
     model: string,
     siteUrl: string | undefined,
     appName: string | undefined,
+    baseUrl: string | undefined,
     worker: WorkerRef | undefined,
     mode: ModeConfig
   ): Promise<string | undefined> {
@@ -253,12 +254,12 @@ export class OpenRouterProvider {
     if (message.type === 'observation') {
       await this.processObservationMessage(
         session, message, originalTimestamp, lastCwd,
-        apiKey, model, siteUrl, appName, worker, mode
+        apiKey, model, siteUrl, appName, baseUrl, worker, mode
       );
     } else if (message.type === 'summarize') {
       await this.processSummaryMessage(
         session, message, originalTimestamp, lastCwd,
-        apiKey, model, siteUrl, appName, worker, mode
+        apiKey, model, siteUrl, appName, baseUrl, worker, mode
       );
     }
 
@@ -274,6 +275,7 @@ export class OpenRouterProvider {
     model: string,
     siteUrl: string | undefined,
     appName: string | undefined,
+    baseUrl: string | undefined,
     worker: WorkerRef | undefined,
     _mode: ModeConfig
   ): Promise<void> {
@@ -295,7 +297,7 @@ export class OpenRouterProvider {
     });
 
     session.conversationHistory.push({ role: 'user', content: obsPrompt });
-    const obsResponse = await this.queryOpenRouterMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
+    const obsResponse = await this.queryOpenRouterMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName, baseUrl);
 
     let tokensUsed = 0;
     if (obsResponse.content) {
@@ -320,6 +322,7 @@ export class OpenRouterProvider {
     model: string,
     siteUrl: string | undefined,
     appName: string | undefined,
+    baseUrl: string | undefined,
     worker: WorkerRef | undefined,
     mode: ModeConfig
   ): Promise<void> {
@@ -336,7 +339,7 @@ export class OpenRouterProvider {
     }, mode);
 
     session.conversationHistory.push({ role: 'user', content: summaryPrompt });
-    const summaryResponse = await this.queryOpenRouterMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
+    const summaryResponse = await this.queryOpenRouterMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName, baseUrl);
 
     let tokensUsed = 0;
     if (summaryResponse.content) {
@@ -416,17 +419,22 @@ export class OpenRouterProvider {
     apiKey: string,
     model: string,
     siteUrl?: string,
-    appName?: string
+    appName?: string,
+    baseUrl?: string
   ): Promise<{ content: string; tokensUsed?: number }> {
     const truncatedHistory = this.truncateHistory(history);
     const messages = this.conversationToOpenAIMessages(truncatedHistory);
     const totalChars = truncatedHistory.reduce((sum, m) => sum + m.content.length, 0);
     const estimatedTokens = this.estimateTokens(truncatedHistory.map(m => m.content).join(''));
 
-    logger.debug('SDK', `Querying OpenRouter multi-turn (${model})`, {
+    const apiUrl = baseUrl ? `${baseUrl}/chat/completions` : DEFAULT_OPENROUTER_API_URL;
+    const isDashScope = baseUrl?.includes('dashscope.aliyuncs.com');
+
+    logger.debug('SDK', `Querying multi-turn (${model})`, {
       turns: truncatedHistory.length,
       totalChars,
-      estimatedTokens
+      estimatedTokens,
+      apiUrl: apiUrl.replace(/\/\/.*@/, '//***@')  // redact credentials in URL
     });
 
     let priorRequestId: string | null = null;
@@ -434,19 +442,23 @@ export class OpenRouterProvider {
     const data = await withRetry<OpenRouterResponse>(async (attemptSignal) => {
       let response: Response;
       try {
-        response = await fetch(OPENROUTER_API_URL, {
+        const headers: Record<string, string> = {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          ...(priorRequestId ? { 'x-claude-mem-prior-request-id': priorRequestId } : {}),
+        };
+        // Only add OpenRouter-specific headers when using OpenRouter
+        if (!isDashScope) {
+          headers['HTTP-Referer'] = siteUrl || 'https://github.com/thedotmack/claude-mem';
+          headers['X-Title'] = appName || 'claude-mem';
+        }
+        response = await fetch(apiUrl, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'HTTP-Referer': siteUrl || 'https://github.com/thedotmack/claude-mem',
-            'X-Title': appName || 'claude-mem',
-            'Content-Type': 'application/json',
-            ...(priorRequestId ? { 'x-claude-mem-prior-request-id': priorRequestId } : {}),
-          },
+          headers,
           body: JSON.stringify({
             model,
             messages,
-            temperature: 0.3,  // Lower temperature for structured extraction
+            temperature: 0.3,
             max_tokens: 4096,
           }),
           signal: attemptSignal,
@@ -459,7 +471,7 @@ export class OpenRouterProvider {
       if (requestId) {
         priorRequestId = requestId;
       } else {
-        logger.debug('SDK', 'OpenRouter response missing request-id header; retry dedup is best-effort');
+        logger.debug('SDK', 'Response missing request-id header; retry dedup is best-effort');
       }
 
       if (!response.ok) {
@@ -468,7 +480,7 @@ export class OpenRouterProvider {
           status: response.status,
           bodyText: errorText,
           headers: response.headers,
-          cause: new Error(`OpenRouter API error: ${response.status} - ${errorText}`),
+          cause: new Error(`API error: ${response.status} - ${errorText}`),
           ...(requestId ? { requestId } : {}),
         });
       }
@@ -476,20 +488,19 @@ export class OpenRouterProvider {
       const responseData = await response.json() as OpenRouterResponse;
 
       if (responseData.error) {
-        // Per OpenRouter spec, errors can come in 200 responses too.
         throw classifyOpenRouterError({
           status: response.status,
           bodyText: `${responseData.error.code} ${responseData.error.message ?? ''}`,
           headers: response.headers,
-          cause: new Error(`OpenRouter API error: ${responseData.error.code} - ${responseData.error.message}`),
+          cause: new Error(`API error: ${responseData.error.code} - ${responseData.error.message}`),
         });
       }
 
       return responseData;
-    }, { label: `OpenRouter ${model}` });
+    }, { label: `${isDashScope ? 'DashScope' : 'OpenRouter'} ${model}` });
 
     if (!data.choices?.[0]?.message?.content) {
-      logger.error('SDK', 'Empty response from OpenRouter');
+      logger.error('SDK', 'Empty response from API');
       return { content: '' };
     }
 
@@ -499,29 +510,20 @@ export class OpenRouterProvider {
     if (tokensUsed) {
       const inputTokens = data.usage?.prompt_tokens || 0;
       const outputTokens = data.usage?.completion_tokens || 0;
-      const estimatedCost = (inputTokens / 1000000 * 3) + (outputTokens / 1000000 * 15);
 
-      logger.info('SDK', 'OpenRouter API usage', {
+      logger.info('SDK', `${isDashScope ? 'DashScope' : 'OpenRouter'} API usage`, {
         model,
         inputTokens,
         outputTokens,
         totalTokens: tokensUsed,
-        estimatedCostUSD: estimatedCost.toFixed(4),
         messagesInContext: truncatedHistory.length
       });
-
-      if (tokensUsed > 50000) {
-        logger.warn('SDK', 'High token usage detected - consider reducing context', {
-          totalTokens: tokensUsed,
-          estimatedCost: estimatedCost.toFixed(4)
-        });
-      }
     }
 
     return { content, tokensUsed };
   }
 
-  private getOpenRouterConfig(): { apiKey: string; model: string; siteUrl?: string; appName?: string } {
+  private getOpenRouterConfig(): { apiKey: string; model: string; siteUrl?: string; appName?: string; baseUrl?: string } {
     const settingsPath = USER_SETTINGS_PATH;
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
 
@@ -531,8 +533,9 @@ export class OpenRouterProvider {
 
     const siteUrl = settings.CLAUDE_MEM_OPENROUTER_SITE_URL || '';
     const appName = settings.CLAUDE_MEM_OPENROUTER_APP_NAME || 'claude-mem';
+    const baseUrl = settings.CLAUDE_MEM_OPENROUTER_BASE_URL || '';
 
-    return { apiKey, model, siteUrl, appName };
+    return { apiKey, model, siteUrl, appName, baseUrl };
   }
 }
 
