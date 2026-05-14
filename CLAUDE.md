@@ -22,6 +22,23 @@ Claude-mem is a Claude Code plugin providing persistent memory across sessions. 
 
 **Viewer UI** (`src/ui/viewer/`) - React interface served by the worker on its configured port (default `http://127.0.0.1:<worker-port>`), built to `plugin/ui/viewer.html`
 
+## Cross-Provider Fallback
+
+Two-layer fallback system for LLM resilience:
+
+**Worker FallbackCoordinator** (`src/services/worker/FallbackCoordinator.ts`) — When the active provider fails with `quota_exhausted`, `auth_invalid`, or `rate_limit`, automatically tries the next provider in the user-configured order. Configured via `CLAUDE_MEM_FALLBACK_PROVIDERS` and `CLAUDE_MEM_FALLBACK_ERROR_KINDS` in settings.json. Example: `"gemini"` → try Gemini when OpenRouter/DashScope fails.
+
+**Server-Beta FallbackServerGenerationProvider** (`src/server/generation/providers/FallbackServerGenerationProvider.ts`) — Chains multiple `ServerGenerationProvider` instances, tries each on failure. Configured via `CLAUDE_MEM_SERVER_FALLBACK_PROVIDERS`.
+
+**llm-proxy** (VPS, :8090) — FastAPI proxy for mem0 LLM extraction, chains DashScope → OpenRouter → Gemini. Routes through `http://llm-proxy:8090/v1` in mem0 config.py. Error classification: 429+quota → switch immediately, 429 → retry then switch, 401/403 → switch immediately, 5xx → retry 3x then switch.
+
+## Multi-Device Sync
+
+**memory-bridge** (VPS, systemd+cron) pulls observations from Mac+Windows workers via Tailscale direct (no SSH tunnels) every 30 minutes and pushes to local mem0-api. Workers bind to `0.0.0.0` and are accessed at their Tailscale IPs:
+- Windows: 100.95.191.117:37778
+- Mac: 100.117.45.102:37701
+- VPS mem0-api: 100.69.76.69:8888
+
 ## Privacy Tags
 - `<private>content</private>` - User-level privacy control (manual, prevents storage)
 

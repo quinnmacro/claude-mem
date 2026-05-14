@@ -46,6 +46,9 @@
 
   // === Worker ===
   "CLAUDE_MEM_WORKER_PORT": "37778",
+  // Default: 127.0.0.1 (local only). For Tailscale/multi-device setups where
+  // other machines need to reach this worker, set to "0.0.0.0" and ensure
+  // firewall allows inbound TCP on the worker port from Tailscale interface.
   "CLAUDE_MEM_WORKER_HOST": "127.0.0.1",
   "CLAUDE_MEM_RUNTIME": "worker",
   "CLAUDE_MEM_MAX_CONCURRENT_AGENTS": "2",
