@@ -11,6 +11,7 @@ import { ActiveServerBetaGenerationWorkerManager } from './ActiveServerBetaGener
 import { ClaudeObservationProvider } from '../generation/providers/ClaudeObservationProvider.js';
 import { GeminiObservationProvider } from '../generation/providers/GeminiObservationProvider.js';
 import { OpenRouterObservationProvider } from '../generation/providers/OpenRouterObservationProvider.js';
+import { FallbackServerGenerationProvider } from '../generation/providers/FallbackServerGenerationProvider.js';
 import type { ServerGenerationProvider } from '../generation/providers/shared/types.js';
 import { ServerBetaService } from './ServerBetaService.js';
 import {
@@ -218,30 +219,79 @@ function buildGenerationWorkerManager(
 function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null {
   const provider = (process.env.CLAUDE_MEM_SERVER_PROVIDER ?? '').trim().toLowerCase();
   if (!provider) return null;
+
+  let primary: ServerGenerationProvider | null = null;
   try {
     if (provider === 'claude' || provider === 'anthropic') {
       const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_MEM_ANTHROPIC_API_KEY ?? '';
       if (!apiKey) return null;
       const opts: { apiKey: string; model?: string } = { apiKey };
       if (process.env.CLAUDE_MEM_SERVER_MODEL) opts.model = process.env.CLAUDE_MEM_SERVER_MODEL;
-      return new ClaudeObservationProvider(opts);
+      primary = new ClaudeObservationProvider(opts);
     }
     if (provider === 'gemini') {
       const apiKey = process.env.GEMINI_API_KEY ?? process.env.CLAUDE_MEM_GEMINI_API_KEY ?? '';
       if (!apiKey) return null;
       const opts: { apiKey: string; model?: string } = { apiKey };
       if (process.env.CLAUDE_MEM_SERVER_MODEL) opts.model = process.env.CLAUDE_MEM_SERVER_MODEL;
-      return new GeminiObservationProvider(opts);
+      primary = new GeminiObservationProvider(opts);
     }
     if (provider === 'openrouter') {
       const apiKey = process.env.OPENROUTER_API_KEY ?? process.env.CLAUDE_MEM_OPENROUTER_API_KEY ?? '';
       if (!apiKey) return null;
       const opts: { apiKey: string; model?: string } = { apiKey };
       if (process.env.CLAUDE_MEM_SERVER_MODEL) opts.model = process.env.CLAUDE_MEM_SERVER_MODEL;
-      return new OpenRouterObservationProvider(opts);
+      primary = new OpenRouterObservationProvider(opts);
     }
   } catch {
     return null;
+  }
+
+  if (!primary) return null;
+
+  // Build fallback chain if configured
+  const fallbackProvidersRaw = (process.env.CLAUDE_MEM_SERVER_FALLBACK_PROVIDERS ?? '').trim();
+  if (fallbackProvidersRaw) {
+    const fallbackLabels = fallbackProvidersRaw
+      .split(',')
+      .map(s => s.trim().toLowerCase())
+      .filter((label): label is 'claude' | 'gemini' | 'openrouter' =>
+        ['claude', 'gemini', 'openrouter'].includes(label) && label !== primary!.providerLabel
+      );
+
+    const fallbacks: ServerGenerationProvider[] = [];
+    for (const label of fallbackLabels) {
+      try {
+        const fb = buildSingleProvider(label);
+        if (fb) fallbacks.push(fb);
+      } catch {
+        // Skip unavailable fallback provider
+      }
+    }
+
+    if (fallbacks.length > 0) {
+      return new FallbackServerGenerationProvider(primary, fallbacks);
+    }
+  }
+
+  return primary;
+}
+
+function buildSingleProvider(label: 'claude' | 'gemini' | 'openrouter'): ServerGenerationProvider | null {
+  if (label === 'claude') {
+    const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_MEM_ANTHROPIC_API_KEY ?? '';
+    if (!apiKey) return null;
+    return new ClaudeObservationProvider({ apiKey });
+  }
+  if (label === 'gemini') {
+    const apiKey = process.env.GEMINI_API_KEY ?? process.env.CLAUDE_MEM_GEMINI_API_KEY ?? '';
+    if (!apiKey) return null;
+    return new GeminiObservationProvider({ apiKey });
+  }
+  if (label === 'openrouter') {
+    const apiKey = process.env.OPENROUTER_API_KEY ?? process.env.CLAUDE_MEM_OPENROUTER_API_KEY ?? '';
+    if (!apiKey) return null;
+    return new OpenRouterObservationProvider({ apiKey });
   }
   return null;
 }

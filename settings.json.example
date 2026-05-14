@@ -122,5 +122,20 @@
   "CLAUDE_MEM_EXCLUDED_PROJECTS": "",
   "CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED": "false",
   "CLAUDE_MEM_FOLDER_USE_LOCAL_MD": "false",
-  "CLAUDE_MEM_FOLDER_MD_EXCLUDE": "[]"
+  "CLAUDE_MEM_FOLDER_MD_EXCLUDE": "[]",
+
+  // === Cross-Provider Fallback ===
+  // When a provider fails with quota_exhausted/auth_invalid/rate_limit,
+  // automatically try the next available provider in this order.
+  // Empty string = fallback disabled (default).
+  // Example: "gemini,openrouter" → try Gemini first, then OpenRouter
+  "CLAUDE_MEM_FALLBACK_PROVIDERS": "",
+  // Error kinds that trigger cross-provider fallback.
+  // Default: quota_exhausted,auth_invalid,rate_limit
+  "CLAUDE_MEM_FALLBACK_ERROR_KINDS": "quota_exhausted,auth_invalid,rate_limit",
+
+  // === Server-Beta Fallback ===
+  // Comma-separated provider order for server-beta generation fallback.
+  // Empty = disabled (default). Example: "gemini,openrouter"
+  "CLAUDE_MEM_SERVER_FALLBACK_PROVIDERS": ""
 }

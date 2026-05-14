@@ -73,6 +73,7 @@ import type { WorkerRef } from './worker/agents/types.js';
 import { GeminiProvider, classifyGeminiError, isGeminiSelected, isGeminiAvailable } from './worker/GeminiProvider.js';
 import { OpenRouterProvider, classifyOpenRouterError, isOpenRouterSelected, isOpenRouterAvailable } from './worker/OpenRouterProvider.js';
 import { ClassifiedProviderError, isClassified, type ProviderErrorClass } from './worker/provider-errors.js';
+import { FallbackCoordinator, type ProviderLabel } from './worker/FallbackCoordinator.js';
 import { PaginationHelper } from './worker/PaginationHelper.js';
 import { SettingsManager } from './worker/SettingsManager.js';
 import { SearchManager } from './worker/SearchManager.js';
@@ -134,6 +135,7 @@ export class WorkerService implements WorkerRef {
   private sessionEventBroadcaster: SessionEventBroadcaster;
   private completionHandler: SessionCompletionHandler;
   private corpusStore: CorpusStore;
+  private fallbackCoordinator: FallbackCoordinator;
 
   private searchRoutes: SearchRoutes | null = null;
 
@@ -170,6 +172,10 @@ export class WorkerService implements WorkerRef {
       this.dbManager,
     );
     this.corpusStore = new CorpusStore();
+    this.fallbackCoordinator = new FallbackCoordinator(
+      SettingsDefaultsManager.get('CLAUDE_MEM_FALLBACK_PROVIDERS'),
+      SettingsDefaultsManager.get('CLAUDE_MEM_FALLBACK_ERROR_KINDS'),
+    );
 
     setIngestContext({
       sessionManager: this.sessionManager,
@@ -586,6 +592,31 @@ export class WorkerService implements WorkerRef {
           : (classified ? classified.kind : null);
 
         if (dispatchKind === 'unrecoverable' || dispatchKind === 'auth_invalid' || dispatchKind === 'quota_exhausted') {
+          // Check if cross-provider fallback is configured for this error kind
+          const failedLabel = this.getProviderLabelFromAgent(agent);
+          if (this.fallbackCoordinator.shouldFallbackForKind(dispatchKind as ProviderErrorClass)) {
+            const candidates = this.fallbackCoordinator.getFallbackCandidates(failedLabel);
+            if (candidates.length > 0) {
+              logger.info('FALLBACK', `Error kind '${dispatchKind}' from '${failedLabel}' — attempting cross-provider fallback`, {
+                sessionId: session.sessionDbId,
+                candidates,
+                errorKind: dispatchKind,
+              });
+              try {
+                await this.tryFallbackChain(session, candidates);
+                // Fallback succeeded — don't mark as unrecoverable
+                return;
+              } catch (fallbackError) {
+                logger.error('FALLBACK', 'All fallback providers failed — reverting to unrecoverable termination', {
+                  sessionId: session.sessionDbId,
+                  candidates,
+                  originalError: errorMessage,
+                  fallbackError: (fallbackError as Error)?.message || String(fallbackError),
+                });
+              }
+            }
+          }
+
           hadUnrecoverableError = true;
           this.lastAiInteraction = {
             timestamp: Date.now(),
@@ -696,6 +727,24 @@ export class WorkerService implements WorkerRef {
       this.dbManager.getSessionStore().updateMemorySessionId(sessionDbId, syntheticId);
     }
 
+    // If FallbackCoordinator is configured, use it for ordered fallback
+    if (this.fallbackCoordinator.isFallbackEnabled()) {
+      const failedLabel = this.getProviderLabelFromAgent(this.getActiveAgent());
+      const candidates = this.fallbackCoordinator.getFallbackCandidates(failedLabel);
+      if (candidates.length > 0) {
+        try {
+          await this.tryFallbackChain(session, candidates);
+          return;
+        } catch {
+          // All configured fallbacks failed — fall through to finalize
+        }
+      }
+      await this.completionHandler.finalizeSession(sessionDbId);
+      this.sessionManager.removeSessionImmediate(sessionDbId);
+      return;
+    }
+
+    // Legacy hardcoded fallback: Gemini → OpenRouter
     if (isGeminiAvailable()) {
       try {
         await this.geminiAgent.startSession(session, this);
@@ -727,6 +776,58 @@ export class WorkerService implements WorkerRef {
 
     await this.completionHandler.finalizeSession(sessionDbId);
     this.sessionManager.removeSessionImmediate(sessionDbId);
+  }
+
+  private getProviderLabelFromAgent(agent: ClaudeProvider | GeminiProvider | OpenRouterProvider): ProviderLabel {
+    if (agent instanceof ClaudeProvider) return 'claude';
+    if (agent instanceof GeminiProvider) return 'gemini';
+    if (agent instanceof OpenRouterProvider) return 'openrouter';
+    return 'claude';
+  }
+
+  private getAgentForLabel(label: ProviderLabel): ClaudeProvider | GeminiProvider | OpenRouterProvider {
+    switch (label) {
+      case 'gemini': return this.geminiAgent;
+      case 'openrouter': return this.openRouterAgent;
+      case 'claude': return this.sdkAgent;
+    }
+  }
+
+  private async tryFallbackChain(
+    session: ReturnType<typeof this.sessionManager.getSession>,
+    candidates: ProviderLabel[]
+  ): Promise<void> {
+    if (!session) throw new Error('No session for fallback');
+
+    if (!session.memorySessionId) {
+      const syntheticId = `fallback-${session.sessionDbId}-${Date.now()}`;
+      session.memorySessionId = syntheticId;
+      this.dbManager.getSessionStore().updateMemorySessionId(session.sessionDbId, syntheticId);
+    }
+
+    for (const label of candidates) {
+      const agent = this.getAgentForLabel(label);
+      logger.info('FALLBACK', `Trying fallback provider '${label}'`, {
+        sessionId: session.sessionDbId,
+        provider: label,
+      });
+      try {
+        await agent.startSession(session, this);
+        logger.info('FALLBACK', `Fallback to '${label}' succeeded`, {
+          sessionId: session.sessionDbId,
+          provider: label,
+        });
+        return;
+      } catch (e) {
+        logger.warn('FALLBACK', `Fallback provider '${label}' failed`, {
+          sessionId: session.sessionDbId,
+          provider: label,
+          error: (e as Error)?.message || String(e),
+        });
+      }
+    }
+
+    throw new Error(`All fallback providers failed: ${candidates.join(', ')}`);
   }
 
   private async terminateSession(sessionDbId: number, reason: string): Promise<void> {
