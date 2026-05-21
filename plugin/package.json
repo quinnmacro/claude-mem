@@ -37,7 +37,31 @@
     "tree-sitter": "^0.25.0"
   },
   "trustedDependencies": [
-    "tree-sitter-cli"
+    "@derekstride/tree-sitter-sql",
+    "@tree-sitter-grammars/tree-sitter-lua",
+    "@tree-sitter-grammars/tree-sitter-markdown",
+    "@tree-sitter-grammars/tree-sitter-toml",
+    "@tree-sitter-grammars/tree-sitter-yaml",
+    "@tree-sitter-grammars/tree-sitter-zig",
+    "tree-sitter-bash",
+    "tree-sitter-c",
+    "tree-sitter-cli",
+    "tree-sitter-cpp",
+    "tree-sitter-css",
+    "tree-sitter-elixir",
+    "tree-sitter-go",
+    "tree-sitter-haskell",
+    "tree-sitter-java",
+    "tree-sitter-javascript",
+    "tree-sitter-kotlin",
+    "tree-sitter-php",
+    "tree-sitter-python",
+    "tree-sitter-ruby",
+    "tree-sitter-rust",
+    "tree-sitter-scala",
+    "tree-sitter-scss",
+    "tree-sitter-swift",
+    "tree-sitter-typescript"
   ],
   "engines": {
     "node": ">=18.0.0",
